@@ -65,3 +65,9 @@ person.delete()
 ## More Details
 
 TODO
+
+## License
+
+MIT License
+
+Copyright (c) 2017 Drew Troxell
