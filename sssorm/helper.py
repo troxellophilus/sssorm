@@ -1,4 +1,4 @@
-from ssorm.model import Model
+from sssorm.model import Model
 
 
 def connect_database(database_path):

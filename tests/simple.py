@@ -1,24 +1,20 @@
-import uuid
+import datetime
 
-import ssorm
+import sssorm
 
-ssorm.connect_database('tests/test.db')
-
-
-def uuid4():
-    return str(uuid.uuid4())
+sssorm.connect_database('tests/test.db')
 
 
-class Person(ssorm.Model):
+class Person(sssorm.Model):
     name = str
     age = int
-    uid = (str, 'UNIQUE')
+    created = datetime.datetime
 
-    def __init__(self, name='default', age=0, uid=uuid4, **_kwargs):
-        super().__init__(name=name, age=age, uid=uid, **_kwargs)
+    def __init__(self, name='default', age=0, created=datetime.datetime.utcnow, **_kwargs):
+        super().__init__(name=name, age=age, created=created, **_kwargs)
 
     @classmethod
-    @ssorm.cursor
+    @sssorm.cursor
     def get_22_yos(cls):
         cls.cursor.execute('select * from Person where age=22')
         return cls.cursor.fetchall()

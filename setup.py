@@ -1,7 +1,7 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="ssorm",
+    name="sssorm",
     version="0.1.0",
     author="Drew Troxell",
     author_email="troxellus@gmail.com",
