@@ -89,6 +89,10 @@ class Model(object):
         for col, val in items.items():
             if isinstance(val, enum.Enum):
                 items[col] = val.name
+            try:
+                _sqltype(val)
+            except TypeError:
+                items[col] = int(val)
         try:
             with self._conn:
                 curs = self._conn.cursor()
