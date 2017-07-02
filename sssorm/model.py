@@ -92,7 +92,7 @@ class Model(object):
             try:
                 _sqltype(val)
             except TypeError:
-                items[col] = int(val)
+                items[col] = val if val is None else int(val)
         try:
             with self._conn:
                 curs = self._conn.cursor()
