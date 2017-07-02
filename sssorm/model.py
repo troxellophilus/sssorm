@@ -1,6 +1,7 @@
 """Database models."""
 
 import datetime
+import logging
 import sqlite3
 
 import enum
@@ -41,6 +42,8 @@ class Model(object):
             if not hasattr(self, col):
                 if col == 'idx':
                     self._idx = val
+                else:
+                    logging.warning("Ignoring unrecognized column name '%s'.", col)
                 continue
             default = val
             default_value = default() if callable(default) else default
@@ -48,8 +51,8 @@ class Model(object):
         self._columns = tuple(c for c in vars(self) if not c.startswith('_'))
 
     @classmethod
-    def connect_database(cls, db_path):
-        cls._conn = sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+    def connect_database(cls, db_path, detect_types=sqlite3.PARSE_DECLTYPES):
+        cls._conn = sqlite3.connect(db_path, detect_types=detect_types or 0)
 
     @property
     def idx(self):
@@ -67,7 +70,7 @@ class Model(object):
 
     def __repr__(self):
         kwargs = ', '.join("{}={}".format(k, repr(v)) for k, v in self.items())
-        return '{}{}'.format(type(self).__name__, kwargs)
+        return '{}({})'.format(type(self).__name__, kwargs)
 
     def items(self):
         return tuple(t for t in vars(self).items() if not t[0].startswith('_'))
@@ -127,7 +130,7 @@ class Model(object):
         with cls._conn:
             curs = cls._conn.cursor()
             curs.execute(select, (idx, ))
-            return cls(**curs.fetchone())
+            return curs.fetchone()
 
     @classmethod
     def get_one(cls, **params):

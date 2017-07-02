@@ -66,6 +66,11 @@ person.delete()
 
 TODO
 
+## Alternatives
+
+* PeeWee: http://docs.peewee-orm.com/en/latest/
+* SQLAlchemy: http://docs.sqlalchemy.org/en/latest/index.html
+
 ## License
 
 MIT License
