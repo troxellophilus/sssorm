@@ -134,7 +134,7 @@ class Model(object):
         with cls._conn:
             curs = cls._conn.cursor()
             curs.execute(select, (idx, ))
-            return cls(**curs.fetchone())
+            return curs.fetchone()
 
     @classmethod
     def get_one(cls, **params):
