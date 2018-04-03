@@ -79,6 +79,22 @@ class Model(object):
     def columns(self):
         return self._columns
 
+    @classmethod
+    def create_table(cls):
+        """Create the table."""
+        columns = ['idx INTEGER PRIMARY KEY']
+        for col, val in vars(cls).items():
+            if col.startswith('_') or isinstance(val, classmethod):
+                continue
+            else:
+                col_def = '{} {}'.format(col, _sqltype(val))
+            columns.append(col_def)
+        create = 'CREATE TABLE IF NOT EXISTS %s (%s);' % (
+            cls.__name__, ', '.join(columns))
+        with cls._conn as conn:
+            curs = conn.cursor()
+            curs.execute(create)
+
     def create(self):
         """Insert this object into the table as a new record."""
         names = ', '.join(self.columns)
