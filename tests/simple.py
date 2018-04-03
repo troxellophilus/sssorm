@@ -19,6 +19,12 @@ class Person(sssorm.Model):
         cls.cursor.execute('select * from Person where age=22')
         return cls.cursor.fetchall()
 
+    @property
+    @sssorm.cursor
+    def tt_yos(self):
+        self.cursor.execute('select * from Person where age=22')
+        return self.cursor.fetchall()
+
 
 person = Person('Sam', 22)
 person.create()
@@ -31,4 +37,6 @@ person = Person()
 person.create()
 
 print(Person.get_one(name='default'))
+
+print(person.tt_yos)
 

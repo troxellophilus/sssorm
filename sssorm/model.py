@@ -15,7 +15,7 @@ def _sqltype(obj):
         modifiers = []
     if obj == str or isinstance(obj, str) or isinstance(obj, enum.Enum):
         sql_type = 'TEXT'
-    elif obj == int or isinstance(obj, int):
+    elif obj == int or obj == bool or isinstance(obj, (int, bool)):
         sql_type = 'INTEGER'
     elif obj == float or isinstance(obj, float):
         sql_type = 'REAL'
