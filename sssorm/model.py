@@ -1,6 +1,7 @@
 """Database models."""
 
 import datetime
+import inspect
 import logging
 import sqlite3
 
@@ -8,11 +9,6 @@ import enum
 
 
 def _sqltype(obj):
-    if isinstance(obj, tuple):
-        modifiers = obj[1:]
-        obj = obj[0]
-    else:
-        modifiers = []
     if obj == str or isinstance(obj, str) or isinstance(obj, enum.Enum):
         sql_type = 'TEXT'
     elif obj == int or obj == bool or isinstance(obj, (int, bool)):
@@ -27,28 +23,34 @@ def _sqltype(obj):
         sql_type = 'DATE'
     else:
         raise TypeError('Unrecognized type: {}, {}'.format(obj, type(obj)))
-    return ' '.join((sql_type, *modifiers))
+    return sql_type
 
 
 class Model(object):
     """A parent for DB models."""
 
     _conn = None  # type: sqlite3.Connection
-    cursor = None  # type: sqlite3.Cursor
+    _cursor = None  # type: sqlite3.Cursor
 
-    def __init__(self, **defaults):
+    def __init__(self, **params):
         """Initialize a Model."""
-        for col, val in defaults.items():
+        for col, value in self.__class__.defaults():
+            if inspect.isclass(value):
+                default_value = None
+            elif callable(value):
+                default_value = value()
+            else:
+                default_value = value
+            setattr(self, col, default_value)
+        for col, val in params.items():
             if not hasattr(self, col):
                 if col == 'idx':
                     self._idx = val
                 else:
-                    logging.warning("Ignoring unrecognized column name '%s'.", col)
+                    raise AttributeError("Model '{}' has no column with name '{}'.".format(self.__class__.__name__, col))
                 continue
-            default = val
-            default_value = default() if callable(default) else default
-            setattr(self, col, default_value)
-        self._columns = tuple(c for c in vars(self) if not c.startswith('_'))
+            value = val() if callable(val) else val
+            setattr(self, col, value)
 
     @classmethod
     def connect_database(cls, db_path, detect_types=sqlite3.PARSE_DECLTYPES):
@@ -75,19 +77,44 @@ class Model(object):
     def items(self):
         return tuple(t for t in vars(self).items() if not t[0].startswith('_'))
 
-    @property
-    def columns(self):
-        return self._columns
+    @classmethod
+    def defaults(cls):
+        class_attrs = inspect.getmembers(cls, lambda m: not (inspect.isroutine(m) or isinstance(m, property)))
+        defaults = []
+        for col, value in filter(lambda m: not m[0].startswith('_'), class_attrs):
+            if isinstance(value, (tuple, list)):
+                defaults.append((col, value[1]))
+            else:
+                try:
+                    _ = _sqltype(value)
+                    defaults.append((col, value))
+                except TypeError:
+                    defaults.append((col, None))
+        return defaults
+
+    @classmethod
+    def schema(cls):
+        class_attrs = inspect.getmembers(cls, lambda m: not (inspect.isroutine(m) or isinstance(m, property)))
+        schema = []
+        for col, value in filter(lambda m: not m[0].startswith('_'), class_attrs):
+            if isinstance(value, (tuple, list)):
+                schema.append((col, _sqltype(value[0])))
+            else:
+                schema.append((col, _sqltype(value)))
+        return tuple(schema)
+
+    @classmethod
+    def columns(cls):
+        return map(lambda t: t[0], cls.schema())
 
     @classmethod
     def create_table(cls):
         """Create the table."""
         columns = ['idx INTEGER PRIMARY KEY']
-        for col, val in vars(cls).items():
-            if col.startswith('_') or isinstance(val, classmethod):
-                continue
-            else:
-                col_def = '{} {}'.format(col, _sqltype(val))
+        print(list(cls.schema()))
+        for col, val in cls.schema():
+            print(col, val)
+            col_def = '{} {}'.format(col, _sqltype(val))
             columns.append(col_def)
         create = 'CREATE TABLE IF NOT EXISTS %s (%s);' % (
             cls.__name__, ', '.join(columns))
@@ -97,8 +124,8 @@ class Model(object):
 
     def create(self):
         """Insert this object into the table as a new record."""
-        names = ', '.join(self.columns)
-        values = ', '.join(':{}'.format(k) for k in self.columns)
+        names = ', '.join(self.columns())
+        values = ', '.join(':{}'.format(k) for k in self.columns())
         insert = '''INSERT INTO {} ({}) VALUES ({});'''.format(
             type(self).__name__, names, values)
         items = dict(self.items())
@@ -116,18 +143,9 @@ class Model(object):
                 self._idx = curs.lastrowid
         except sqlite3.OperationalError as err:
             if 'no such table' in str(err):
-                columns = ['idx INTEGER PRIMARY KEY']
-                for col, val in vars(type(self)).items():
-                    if col.startswith('_') or isinstance(val, classmethod):
-                        continue
-                    else:
-                        col_def = '{} {}'.format(col, _sqltype(val))
-                    columns.append(col_def)
-                create = 'CREATE TABLE IF NOT EXISTS %s (%s);' % (
-                    type(self).__name__, ', '.join(columns))
+                self.__class__.create_table()
                 with self._conn as conn:
                     curs = conn.cursor()
-                    curs.execute(create)
                     curs.execute(insert, dict(items))
                     self._idx = curs.lastrowid
             else:
@@ -179,7 +197,7 @@ class Model(object):
 
     def update(self):
         """Update this record in the table with its current values."""
-        new_vals = ', '.join('=:'.join((k, k)) for k in self.columns)
+        new_vals = ', '.join('=:'.join((k, k)) for k in self.columns())
         query = '''UPDATE {} SET {} WHERE idx={};'''.format(type(self).__name__, new_vals, self.idx)
         with self._conn:
             curs = self._conn.cursor()
