@@ -28,12 +28,13 @@ Create a Model. Class attributes specify columns and types, while __init__ keywo
 
 ```python
 class Person(sssorm.Model):
-    name = str
-    age = int
-    created = datetime.datetime
 
-    def __init__(self, name, age=0, created=datetime.datetime.utcnow, **_kwargs):
-        super().__init__(name=name, age=age, created=created, **_kwargs)
+    name = (str, 'default')
+    age = int
+    cakes = (int, 0)
+    networth = (float, 0.0)
+    data = (bytes, b'{"key": "value"}')
+    created = (datetime, datetime.utcnow)
 ```
 
 Insert a record into the table (the table will be created automatically). Note that the created field will be populated by executing the datetime.datetime.utcnow function passed in as default.
