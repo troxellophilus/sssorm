@@ -9,9 +9,13 @@ import enum
 
 
 def _sqltype(obj):
-    if obj == str or isinstance(obj, str) or isinstance(obj, enum.Enum):
+    if obj == str or isinstance(obj, str):
         sql_type = 'TEXT'
-    elif obj == int or obj == bool or isinstance(obj, (int, bool)):
+    elif (
+        obj == int
+        or obj == bool
+        or isinstance(obj, (int, bool))
+    ):
         sql_type = 'INTEGER'
     elif obj == float or isinstance(obj, float):
         sql_type = 'REAL'
@@ -21,6 +25,10 @@ def _sqltype(obj):
         sql_type = 'TIMESTAMP'
     elif obj == datetime.date or isinstance(obj, datetime.date):
         sql_type = 'DATE'
+    elif isinstance(obj, Model):
+        sql_type = obj.__class__.__name__
+    elif isinstance(obj, type) and issubclass(obj, Model):
+        sql_type = obj.__name__
     else:
         raise TypeError('Unrecognized type: {}, {}'.format(obj, type(obj)))
     return sql_type
@@ -29,8 +37,10 @@ def _sqltype(obj):
 class Model(object):
     """A parent for DB models."""
 
+    _idx = None
     _conn = None  # type: sqlite3.Connection
     _cursor = None  # type: sqlite3.Cursor
+    _converters = {}
 
     def __init__(self, **params):
         """Initialize a Model."""
@@ -43,18 +53,17 @@ class Model(object):
                 default_value = value
             setattr(self, col, default_value)
         for col, val in params.items():
-            if not hasattr(self, col):
-                if col == 'idx':
-                    self._idx = val
-                else:
-                    raise AttributeError("Model '{}' has no column with name '{}'.".format(self.__class__.__name__, col))
-                continue
-            value = val() if callable(val) else val
+            if not hasattr(self, col) or inspect.isroutine(vars(self).get(col)):
+                raise AttributeError("Model '{}' has no column with name '{}'.".format(self.__class__.__name__, col))
+            if isinstance(val, self.__class__):
+                value = int(val)
+            else:
+                value = val() if callable(val) else val
             setattr(self, col, value)
 
     @classmethod
     def connect_database(cls, db_path, detect_types=sqlite3.PARSE_DECLTYPES):
-        cls._conn = sqlite3.connect(db_path, detect_types=detect_types or 0)
+        cls._conn = sqlite3.connect(db_path, detect_types=detect_types)
 
     @property
     def idx(self):
@@ -70,12 +79,29 @@ class Model(object):
     def __iter__(self):
         return (k for k in vars(self) if not k.startswith('_'))
 
+    def __eq__(self, other):
+        return (
+            isinstance(other, self.__class__)
+            and other.idx == self.idx
+            and all(vars(other)[k] == v for k, v in self.items())
+        )
+
     def __repr__(self):
         kwargs = ', '.join("{}={}".format(k, repr(v)) for k, v in self.items())
         return '{}({})'.format(type(self).__name__, kwargs)
 
+    def __conform__(self, protocol):
+        if protocol is sqlite3.PrepareProtocol:
+            return self.idx
+
+    @classmethod
+    def _model_factory(cls, cursor, row):
+        row = sqlite3.Row(cursor, row)
+        return cls(**row)
+
     def items(self):
-        return tuple(t for t in vars(self).items() if not t[0].startswith('_'))
+        attrs = vars(self)
+        return tuple((c, attrs[c]) for c in self.columns())
 
     @classmethod
     def defaults(cls):
@@ -95,26 +121,35 @@ class Model(object):
     @classmethod
     def schema(cls):
         class_attrs = inspect.getmembers(cls, lambda m: not (inspect.isroutine(m) or isinstance(m, property)))
-        schema = []
+        schema = [('_idx', 'INTEGER PRIMARY KEY')]
         for col, value in filter(lambda m: not m[0].startswith('_'), class_attrs):
             if isinstance(value, (tuple, list)):
-                schema.append((col, _sqltype(value[0])))
+                sql_type = _sqltype(value[0])
             else:
-                schema.append((col, _sqltype(value)))
+                sql_type = _sqltype(value)
+            schema.append((col, sql_type))
+            # Register converters/adapters if necessary
+            if isinstance(value, Model) or (isinstance(value, type) and issubclass(value, Model)):
+                if sql_type not in cls._converters:
+                    if isinstance(value, Model):
+                        converter = lambda s: type(value).get_by_index(int(s))
+                    else:
+                        parent = inspect.getmro(value)[0]
+                        converter = lambda s: parent.get_by_index(int(s))
+                    cls._converters[sql_type] = converter
+                    sqlite3.register_converter(sql_type, converter)
         return tuple(schema)
 
     @classmethod
     def columns(cls):
-        return map(lambda t: t[0], cls.schema())
+        return filter(lambda c: c != '_idx', map(lambda t: t[0], cls.schema()))
 
     @classmethod
     def create_table(cls):
         """Create the table."""
-        columns = ['idx INTEGER PRIMARY KEY']
-        print(list(cls.schema()))
-        for col, val in cls.schema():
-            print(col, val)
-            col_def = '{} {}'.format(col, _sqltype(val))
+        columns = []
+        for col, type_str in cls.schema():
+            col_def = '{} {}'.format(col, type_str)
             columns.append(col_def)
         create = 'CREATE TABLE IF NOT EXISTS %s (%s);' % (
             cls.__name__, ', '.join(columns))
@@ -130,12 +165,13 @@ class Model(object):
             type(self).__name__, names, values)
         items = dict(self.items())
         for col, val in items.items():
-            if isinstance(val, enum.Enum):
-                items[col] = val.name
             try:
-                _sqltype(val)
+                sql_type = _sqltype(val)
             except TypeError:
                 items[col] = val if val is None else int(val)
+            else:
+                if sql_type == 'INTEGER':
+                    items[col] = int(val)
         try:
             with self._conn:
                 curs = self._conn.cursor()
@@ -152,19 +188,9 @@ class Model(object):
                 raise err
 
     @classmethod
-    def _model_factory(cls, cursor, row):
-        row_dict = {}
-        for idx, col in enumerate(cursor.description):
-            col_name = col[0]
-            if col_name.endswith('_idx'):
-                col_name = col_name[:-4]
-            row_dict[col_name] = row[idx]
-        return cls(**row_dict)
-
-    @classmethod
     def get_by_index(cls, idx):
         cls._conn.row_factory = cls._model_factory
-        select = '''SELECT * FROM {} WHERE idx=?;'''.format(cls.__name__)
+        select = '''SELECT * FROM {} WHERE _idx=?;'''.format(cls.__name__)
         with cls._conn:
             curs = cls._conn.cursor()
             curs.execute(select, (idx, ))
@@ -177,7 +203,7 @@ class Model(object):
             where = ' WHERE ' + ' and '.join('=:'.join((k, k)) for k in params)
         else:
             where = ''
-        select = '''SELECT * FROM {} {} ORDER BY idx DESC;'''.format(cls.__name__, where)
+        select = '''SELECT * FROM {} {} ORDER BY _idx DESC;'''.format(cls.__name__, where)
         with cls._conn:
             curs = cls._conn.cursor()
             curs.execute(select, params)
@@ -187,9 +213,12 @@ class Model(object):
     def get_many(cls, limit=None, **params):
         """Retrieve objects from the table."""
         cls._conn.row_factory = cls._model_factory
-        where = ' and '.join('=:'.join((k, k)) for k in params)
         lim = " LIMIT {}".format(limit) if limit else ''
-        select = '''SELECT * FROM {} WHERE {}{};'''.format(cls.__name__, where, lim)
+        if params:
+            where = ' and '.join('=:'.join((k, k)) for k in params)
+            select = '''SELECT * FROM {} WHERE {}{};'''.format(cls.__name__, where, lim)
+        else:
+            select = '''SELECT * FROM {} {} ORDER BY _idx DESC;'''.format(cls.__name__, lim)
         with cls._conn:
             curs = cls._conn.cursor()
             curs.execute(select, params)
@@ -198,14 +227,14 @@ class Model(object):
     def update(self):
         """Update this record in the table with its current values."""
         new_vals = ', '.join('=:'.join((k, k)) for k in self.columns())
-        query = '''UPDATE {} SET {} WHERE idx={};'''.format(type(self).__name__, new_vals, self.idx)
+        query = '''UPDATE {} SET {} WHERE _idx={};'''.format(type(self).__name__, new_vals, self.idx)
         with self._conn:
             curs = self._conn.cursor()
             curs.execute(query, dict(self.items()))
 
     def delete(self):
         """Remove this record from the table."""
-        delete_stmnt = '''DELETE FROM {} WHERE idx={}'''.format(type(self).__name__, self.idx)
+        delete_stmnt = '''DELETE FROM {} WHERE _idx={}'''.format(type(self).__name__, self.idx)
         with self._conn:
             curs = self._conn.cursor()
             curs.execute(delete_stmnt)
