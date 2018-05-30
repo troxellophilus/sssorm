@@ -55,15 +55,12 @@ class Model(object):
         for col, val in params.items():
             if not hasattr(self, col) or inspect.isroutine(vars(self).get(col)):
                 raise AttributeError("Model '{}' has no column with name '{}'.".format(self.__class__.__name__, col))
-            if isinstance(val, self.__class__):
-                value = int(val)
-            else:
-                value = val() if callable(val) else val
+            value = val() if callable(val) else val
             setattr(self, col, value)
 
     @classmethod
-    def connect_database(cls, db_path, detect_types=sqlite3.PARSE_DECLTYPES):
-        cls._conn = sqlite3.connect(db_path, detect_types=detect_types)
+    def connect_database(cls, db_path):
+        cls._conn = sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
 
     @property
     def idx(self):

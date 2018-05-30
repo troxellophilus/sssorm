@@ -1,5 +1,6 @@
 from datetime import datetime
 import os
+import sqlite3
 import unittest
 
 from sssorm import Model
@@ -55,6 +56,15 @@ class TestModel(unittest.TestCase):
                 'networth': 'REAL',
                 'data': 'BLOB',
                 'created': 'TIMESTAMP'
+            }
+        )
+        self.assertDictEqual(
+            dict(Player.schema()),
+            {
+                '_idx': 'INTEGER PRIMARY KEY',
+                'person': 'Person',
+                'number': 'INTEGER',
+                'position': 'TEXT'
             }
         )
 
@@ -128,6 +138,11 @@ class TestModel(unittest.TestCase):
         player.create()
         player = Player.get_by_index(player.idx)
         self.assertIsNone(player.person)
+
+    def test_converters(self):
+        player = Player(number=22, position='P')
+        player.schema()
+        self.assertListEqual(list(sqlite3.converters.keys()), ['DATE', 'TIMESTAMP', 'PERSON'])
 
 
 if __name__ == '__main__':
