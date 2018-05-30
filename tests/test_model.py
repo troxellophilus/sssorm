@@ -123,6 +123,12 @@ class TestModel(unittest.TestCase):
         player = Player.get_by_index(player.idx)
         self.assertEqual(person, player.person)
 
+    def test_null_foreign_key(self):
+        player = Player(number=22, position='P')
+        player.create()
+        player = Player.get_by_index(player.idx)
+        self.assertIsNone(player.person)
+
 
 if __name__ == '__main__':
     unittest.main()
