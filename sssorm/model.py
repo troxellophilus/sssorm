@@ -5,7 +5,7 @@ import inspect
 import logging
 import sqlite3
 
-import enum
+from sssorm import cursor
 
 
 def _sqltype(obj):
@@ -32,6 +32,11 @@ def _sqltype(obj):
     else:
         raise TypeError('Unrecognized type: {}, {}'.format(obj, type(obj)))
     return sql_type
+
+
+def connect_database(db_path):
+    """Initialize the database connection for Model objects."""
+    Model.connect_database(db_path)
 
 
 class Model(object):
@@ -185,41 +190,38 @@ class Model(object):
                 raise err
 
     @classmethod
+    @cursor
     def get_by_index(cls, idx):
-        cls._conn.row_factory = cls._model_factory
         select = '''SELECT * FROM {} WHERE _idx=?;'''.format(cls.__name__)
-        with cls._conn:
-            curs = cls._conn.cursor()
-            curs.execute(select, (idx, ))
-            return curs.fetchone()
+        curs = cls._cursor
+        curs.execute(select, (idx, ))
+        return curs.fetchone()
 
     @classmethod
+    @cursor
     def get_one(cls, **params):
-        cls._conn.row_factory = cls._model_factory
         if params:
             where = ' WHERE ' + ' and '.join('=:'.join((k, k)) for k in params)
         else:
             where = ''
         select = '''SELECT * FROM {} {} ORDER BY _idx DESC;'''.format(cls.__name__, where)
-        with cls._conn:
-            curs = cls._conn.cursor()
-            curs.execute(select, params)
-            return curs.fetchone()
+        curs = cls._cursor
+        curs.execute(select, params)
+        return curs.fetchone()
 
     @classmethod
+    @cursor
     def get_many(cls, limit=None, **params):
         """Retrieve objects from the table."""
-        cls._conn.row_factory = cls._model_factory
         lim = " LIMIT {}".format(limit) if limit else ''
         if params:
             where = ' and '.join('=:'.join((k, k)) for k in params)
             select = '''SELECT * FROM {} WHERE {}{};'''.format(cls.__name__, where, lim)
         else:
             select = '''SELECT * FROM {} {} ORDER BY _idx DESC;'''.format(cls.__name__, lim)
-        with cls._conn:
-            curs = cls._conn.cursor()
-            curs.execute(select, params)
-            return curs.fetchmany(limit) if limit else curs.fetchall()
+        curs = cls._cursor
+        curs.execute(select, params)
+        return curs.fetchmany(limit) if limit else curs.fetchall()
 
     def update(self):
         """Update this record in the table with its current values."""

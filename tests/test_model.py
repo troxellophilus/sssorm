@@ -3,6 +3,7 @@ import os
 import sqlite3
 import unittest
 
+import sssorm
 from sssorm import Model
 
 
@@ -29,7 +30,7 @@ class Player(Model):
 class TestModel(unittest.TestCase):
 
     def setUp(self):
-        Model.connect_database(_DB)
+        sssorm.connect_database(_DB)
 
     def tearDown(self):
         Model._conn.close()
@@ -143,6 +144,10 @@ class TestModel(unittest.TestCase):
         player = Player(number=22, position='P')
         player.schema()
         self.assertListEqual(list(sqlite3.converters.keys()), ['DATE', 'TIMESTAMP', 'PERSON'])
+
+    def test_create_table_on_get(self):
+        person = Person.get_one()
+        self.assertIsNone(person)
 
 
 if __name__ == '__main__':

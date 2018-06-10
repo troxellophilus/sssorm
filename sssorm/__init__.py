@@ -1,2 +1,2 @@
-from sssorm.helper import connect_database, cursor
-from sssorm.model import Model
+from sssorm.helper import cursor
+from sssorm.model import Model, connect_database
